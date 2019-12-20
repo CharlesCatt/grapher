@@ -1,0 +1,151 @@
+#lang racket
+
+(define (prompt/read message) ; displays a prompt, then returns user input
+  (if (display message) ; display return value is undefined, so either way this will display and read
+      (read)
+      (read)
+      )
+  )
+
+(define (prompt/read-line message) ; same as prompt/read, but uses real-line this returns a string
+  (if (display message)
+      (read-line)
+      (read-line)
+      )
+  )
+
+(define (~= x y) ; checks if x is approximately equal to y
+  (if (and (< (- x 1e-13) y) (> (+ x 1e-13) y))
+      #t
+      #f
+      )
+  )
+
+(define (in-function x y funcs symbols)
+  (if (null? funcs)
+      " "
+      (if (and (= (round (real-part (with-handlers ([exn:fail:contract:divide-by-zero? ; catches division by zero and returns 1e13.. close enough
+                   (lambda (exn) 1e13)]) ((car funcs) x)))) y) (real? ((car funcs) x)))
+          (car symbols)
+          (in-function x y (cdr funcs) (cdr symbols))
+          )
+      )
+  )
+
+; offset is used to ignore a number of spots so that the numbers stay lined up
+(define (x-axis-numbers x x-max x-scale offset)
+  (if (> x x-max)
+      ""
+      (if (> offset 0)
+          (x-axis-numbers (+ x x-scale) x-max x-scale (- offset 1))
+          (if (~= x (round x))
+              (if (negative? (round x))
+                       (string-append (~r x #:precision 0) (x-axis-numbers (+ x x-scale) x-max x-scale 1))
+                       (string-append (~r x #:precision 0) (x-axis-numbers (+ x x-scale) x-max x-scale 0))
+                  )
+              (if (negative? (round x))
+                  (if (~= (sin x) 0) ; if x is a factor of pi.. pretty sneaky eh? modulo only takes integers
+                      (string-append (~r (round (/ x pi))  #:precision 0) (string-append "pi" (x-axis-numbers (+ x x-scale) x-max x-scale 3)))
+                      (string-append " " (x-axis-numbers (+ x x-scale) x-max x-scale 0))
+                      )
+                  (if (~= (sin x) 0)
+                      (string-append (~r (round (/ x pi))  #:precision 0) (string-append "pi" (x-axis-numbers (+ x x-scale) x-max x-scale 2)))
+                      (string-append " " (x-axis-numbers (+ x x-scale) x-max x-scale 0))
+                      )
+                  )
+              )
+          )
+      )
+  )
+
+; prints out each space for x in a line
+(define (x-in-line funcs x x-max y xscale yscale symbols)
+  (if (> x x-max)
+      (string-append (~r (/ y yscale) #:precision 2) "\n")
+      (cond ((not (string=? (in-function x y funcs symbols) " ")) ; will not try to display imaginary numbers
+             (string-append (in-function x y funcs symbols) (x-in-line funcs (+ x xscale) x-max y xscale yscale symbols))) ; used to be round-towards-zero
+            ((~= x 0)
+             (string-append "|" (x-in-line funcs (+ x xscale) x-max y xscale yscale symbols)))
+            (else (if (= y 0)
+                      (string-append "-" (x-in-line funcs (+ x xscale) x-max y xscale yscale symbols))
+                      (string-append " " (x-in-line funcs (+ x xscale) x-max y xscale yscale symbols))
+                      )
+                  )
+            )
+      )
+  )
+
+; prints out each line using x-in-line
+(define (line funcs x-begin x-max y y-min x-scale y-scale symbols)
+  (if (< y y-min)
+      (x-axis-numbers x-begin x-max x-scale 0)
+      (string-append
+       (x-in-line funcs x-begin x-max y x-scale y-scale symbols)
+       (line funcs x-begin x-max (- y 1) y-min x-scale y-scale symbols)
+       )
+      )
+  )
+
+(define (augment-functions funcs y-min y-max)
+  (if (null? funcs)
+      '()
+      (cons (lambda (x) (* ((car funcs) x) (/ 30 (- y-max y-min)))) (augment-functions (cdr funcs) y-min y-max))
+      )
+  )
+(define (pick-symbol* symbols number string) ; shows all the symbols and prompts for an input
+  (if (null? (cdr symbols))
+      (prompt/read (string-append* string (list (number->string number) ": " (car symbols) "\n" "Input a number to choose a symbol: ")))
+      (pick-symbol* (cdr symbols) (+ number 1) (string-append* string (list (number->string number) ": " (car symbols) "\n"))) 
+      )
+  )
+(define (pick-symbol symbols) ; affectuated by pick-symbol*, this is used becuase the arguments are messy
+  (pick-symbol* symbols 0 "")
+  )
+
+(define (remove-element funcs number)
+    (if (null? (cdr funcs))
+        '()
+        (if (= number 0)
+            (if (list? (cdr funcs))
+                (cdr funcs)
+                (list (cdr funcs))
+                )
+            (cons (car funcs) (remove-element (cdr funcs) (- number 1)))
+            )
+        )
+  )
+
+(define (graph funcs x-begin x-max y-min y-max symbols)
+  (display (string-append (line (augment-functions funcs y-min y-max) x-begin x-max (* y-max (/ 30 (- y-max y-min))) (* y-min (/ 30 (- y-max y-min))) (/ (- x-max x-begin) 100) (/ 30 (- y-max y-min)) symbols) "\n"))
+  
+  (define (add-function) ; add a function with new character for displaying
+    (graph (cons (eval (prompt/read "Enter a lambda expression: ") ns) funcs) x-begin x-max y-min y-max (cons (symbol->string (prompt/read "Enter a new symbol: ")) symbols))
+    )
+  (define (rem-function number) ; graphs without function specified by number
+    (graph (remove-element funcs number) x-begin x-max y-min y-max (remove-element symbols number))
+    )
+  
+  (if (equal? (prompt/read "do you wish to add or remove a function? a/r: ") 'r)
+          (rem-function (pick-symbol symbols))
+          (add-function)
+          )
+  )
+  
+
+(define-namespace-anchor anc)
+(define ns (namespace-anchor->namespace anc))
+(define (input-graph)
+  (graph (list (eval (prompt/read "Enter a lambda expression: ") ns))
+         (eval (prompt/read "Enter lower x bound: ") ns)
+         (eval (prompt/read "Enter upper x bound: ") ns)
+         (eval (prompt/read "Enter lower y bound: ") ns)
+         (eval (prompt/read "Enter upper y bound: ") ns)
+         (list "*"))
+  )
+(input-graph)
+;(* y-max (/ 30 (- y-max y-min)))
+;(graph + -4 4 -5 5)
+;(graph (list (lambda (x) (sin x)) (lambda (x) (cos x))) (* -2 pi) (* 2 pi) -1 1 (list "*" "+"))
+
+
+
